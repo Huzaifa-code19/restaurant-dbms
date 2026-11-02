@@ -1,0 +1,125 @@
+/* Navbar */
+.navbar {
+  width: 100%;
+  min-height: 66px;
+  padding: 0px 32px;
+  background: #111827;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+
+  box-sizing: border-box;
+  font-family: "Inter", "Segoe UI", sans-serif;
+}
+
+/* Page heading */
+.navbar-heading h1 {
+  margin: 0 0 6px;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.6px;
+  color: #ffffff;
+}
+
+.navbar-heading p {
+  margin: 0;
+  font-size: 13px;
+  color: #ffffff;
+}
+
+/* Right-side actions */
+.navbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+
+/* Admin profile */
+.navbar-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 18px;
+  border-left: 1px solid #e5e7eb;
+}
+
+.profile-avatar {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+
+  background: #d1fae5;
+  color: #047857;
+  border-radius: 50%;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.profile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.profile-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.profile-role {
+  font-size: 11px;
+  color: #ffffff;
+}
+
+/* Responsive layout */
+@media (max-width: 1000px) {
+  .navbar {
+    padding: 18px 22px;
+  }
+
+  .navbar-actions {
+    gap: 12px;
+  }
+
+  .navbar-search {
+    width: 200px;
+  }
+}
+
+@media (max-width: 700px) {
+  .navbar {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 20px 16px;
+    gap: 18px;
+  }
+
+  .navbar-heading h1 {
+    font-size: 21px;
+  }
+
+  .navbar-actions {
+    width: 100%;
+    gap: 10px;
+  }
+
+  .navbar-search {
+    flex: 1;
+    width: auto;
+  }
+
+  .search-shortcut,
+  .profile-info {
+    display: none;
+  }
+
+  .navbar-profile {
+    padding-left: 10px;
+  }
+}

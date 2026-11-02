@@ -1,0 +1,106 @@
+
+/* Dashboard cards layout */
+body{
+    font-family: 'Inter', sans-serif;
+}
+.dashboard-container{
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 24px;
+    box-sizing: border-box;
+}
+.dashboard-card {
+  border-radius: 14px;
+  padding: 24px;
+  min-width: 0;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Subtle hover effect */
+.dashboard-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  border-color: #d1d5db;
+}
+
+/* Card title */
+.dashboard-card h3 {
+  margin: 0 0 18px;
+  color: #ffff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+/* Main value */
+.dashboard-card p:first-of-type {
+  margin: 0 0 16px;
+  color: #ffff;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.8px;
+  overflow-wrap: anywhere;
+}
+
+/* Percentage change */
+.dashboard-card .dashboard-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 12px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Positive trend */
+.dashboard-card .dashboard-change.up {
+  color: #059669;
+  background: #ecfdf5;
+}
+
+/* Negative trend */
+.dashboard-card .dashboard-change.down {
+  color: #dc2626;
+  background: #fef2f2;
+}
+
+/* Description */
+.dashboard-card p:last-child {
+  margin: 0;
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .dashboard-card {
+    padding: 20px;
+    border-radius: 12px;
+  }
+
+  .dashboard-card p:first-of-type {
+    font-size: 26px;
+  }
+}
+
+@media (max-width: 480px) {
+  .dashboard-card {
+    padding: 16px;
+  }
+
+  .dashboard-card h3 {
+    font-size: 13px;
+    margin-bottom: 14px;
+  }
+
+  .dashboard-card p:first-of-type {
+    font-size: 23px;
+  }
+}
