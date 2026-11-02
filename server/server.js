@@ -192,5 +192,254 @@ app.delete('/api/reservations/:id', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// GET all orders (JOIN across orders, tables and staff)
+app.get('/api/orders', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT o.order_id, t.table_number, s.name AS staff, o.status, o.total_amount,
+             CONVERT(VARCHAR(16), o.order_date, 120) AS order_date
+      FROM orders o
+      JOIN tables_ t ON o.table_id = t.table_id
+      LEFT JOIN staff s ON o.staff_id = s.staff_id
+      ORDER BY o.order_id DESC
+    `);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET the items inside one order
+app.get('/api/orders/:id/items', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('id', sql.Int, req.params.id)
+      .query(`
+        SELECT m.name, oi.quantity, oi.price, oi.quantity * oi.price AS subtotal
+        FROM order_items oi
+        JOIN menu_items m ON oi.item_id = m.item_id
+        WHERE oi.order_id = @id
+      `);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// CREATE an order with its items (one transaction: all steps succeed or none do)
+app.post('/api/orders/new', async (req, res) => {
+  const { table_id, staff_id, items } = req.body;
+  if (!table_id || !items || items.length === 0) {
+    return res.status(400).json({ error: 'Choose a table and at least one item' });
+  }
+  const pool = await poolPromise;
+  const transaction = new sql.Transaction(pool);
+  try {
+    await transaction.begin();
+
+    const orderResult = await new sql.Request(transaction)
+      .input('table_id', sql.Int, table_id)
+      .input('staff_id', sql.Int, staff_id || null)
+      .query('INSERT INTO orders (table_id, staff_id) OUTPUT INSERTED.order_id VALUES (@table_id, @staff_id)');
+    const order_id = orderResult.recordset[0].order_id;
+
+    for (const it of items) {
+      await new sql.Request(transaction)
+        .input('order_id', sql.Int, order_id)
+        .input('item_id', sql.Int, it.item_id)
+        .input('quantity', sql.Int, it.quantity)
+        .query('INSERT INTO order_items (order_id, item_id, quantity, price) SELECT @order_id, item_id, @quantity, price FROM menu_items WHERE item_id = @item_id');
+    }
+
+    await new sql.Request(transaction)
+      .input('order_id', sql.Int, order_id)
+      .query('UPDATE orders SET total_amount = (SELECT SUM(quantity * price) FROM order_items WHERE order_id = @order_id) WHERE order_id = @order_id');
+
+    await new sql.Request(transaction)
+      .input('table_id', sql.Int, table_id)
+      .query("UPDATE tables_ SET status = 'occupied' WHERE table_id = @table_id");
+
+    await transaction.commit();
+    res.json({ success: true, order_id: order_id });
+  } catch (err) {
+    try { await transaction.rollback(); } catch (e) {}
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// UPDATE an order's status
+app.put('/api/orders/:id', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.Int, req.params.id)
+      .input('status', sql.VarChar(20), req.body.status)
+      .query('UPDATE orders SET status = @status WHERE order_id = @id');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET all payments (JOIN across payments, orders and tables)
+app.get('/api/payments', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT p.payment_id, p.order_id, t.table_number, p.amount, p.status,
+             CONVERT(VARCHAR(16), p.payment_date, 120) AS payment_date
+      FROM payments p
+      JOIN orders o ON p.order_id = o.order_id
+      JOIN tables_ t ON o.table_id = t.table_id
+      ORDER BY p.payment_id DESC
+    `);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GENERATE a bill for an order
+app.post('/api/payments', async (req, res) => {
+  try {
+    const { order_id } = req.body;
+    const pool = await poolPromise;
+    const ord = await pool.request()
+      .input('order_id', sql.Int, order_id)
+      .query('SELECT total_amount FROM orders WHERE order_id = @order_id');
+    if (ord.recordset.length === 0) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    await pool.request()
+      .input('order_id', sql.Int, order_id)
+      .input('amount', sql.Decimal(10, 2), ord.recordset[0].total_amount)
+      .query("INSERT INTO payments (order_id, amount, status) VALUES (@order_id, @amount, 'pending')");
+    await pool.request()
+      .input('order_id', sql.Int, order_id)
+      .query("UPDATE orders SET status = 'billed' WHERE order_id = @order_id");
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// MARK a payment as paid (and free the table)
+app.put('/api/payments/:id/pay', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id', sql.Int, req.params.id)
+      .query("UPDATE payments SET status = 'paid', payment_date = GETDATE() WHERE payment_id = @id");
+    await pool.request()
+      .input('id', sql.Int, req.params.id)
+      .query("UPDATE tables_ SET status = 'available' WHERE table_id = (SELECT o.table_id FROM payments p JOIN orders o ON p.order_id = o.order_id WHERE p.payment_id = @id)");
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+// DASHBOARD: all the summary numbers, worked out with SQL
+app.get('/api/dashboard', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+
+    // 1. The four stat cards
+    const s = await pool.request().query(`
+      SELECT
+        (SELECT ISNULL(SUM(amount), 0) FROM payments WHERE status = 'paid') AS revenue,
+        (SELECT COUNT(*) FROM orders) AS orders,
+        (SELECT COUNT(*) FROM reservations) AS reservations,
+        (SELECT COUNT(*) FROM tables_ WHERE status = 'available') AS available,
+        (SELECT COUNT(*) FROM tables_) AS total_tables
+    `);
+    const st = s.recordset[0];
+    const dashboardStats = [
+      { id: 1, title: 'Total Revenue', value: st.revenue, prefix: 'Rs. ', change: 0, trend: 'up', description: 'from paid bills', color: '#31c300' },
+      { id: 2, title: 'Total Orders', value: st.orders, change: 0, trend: 'up', description: 'all time', color: '#452ef7' },
+      { id: 3, title: 'Reservations', value: st.reservations, change: 0, trend: 'up', description: 'all time', color: '#f93adf' },
+      { id: 4, title: 'Available Tables', value: st.available, total: st.total_tables, change: 0, trend: 'up', description: 'tables available now', color: '#f5ab3c' }
+    ];
+
+    // 2. The 5 most recent orders
+    const ro = await pool.request().query(`
+      SELECT TOP 5
+        o.order_id AS id,
+        'Table ' + CAST(t.table_number AS VARCHAR(10)) AS customer,
+        o.total_amount AS total,
+        CASE o.status
+          WHEN 'placed' THEN 'Pending'
+          WHEN 'preparing' THEN 'Preparing'
+          ELSE 'Completed'
+        END AS status,
+        ISNULL((SELECT TOP 1 CASE p.status WHEN 'paid' THEN 'Paid' ELSE 'Pending' END
+                FROM payments p WHERE p.order_id = o.order_id
+                ORDER BY p.payment_id DESC), 'Pending') AS paymentStatus,
+        'Dine-in' AS orderType,
+        'T-' + RIGHT('0' + CAST(t.table_number AS VARCHAR(10)), 2) AS [table],
+        CONVERT(VARCHAR(5), o.order_date, 108) AS [time]
+      FROM orders o
+      JOIN tables_ t ON o.table_id = t.table_id
+      ORDER BY o.order_id DESC
+    `);
+    const recentOrders = ro.recordset;
+    recentOrders.forEach(o => { o.items = []; });
+
+    if (recentOrders.length > 0) {
+      const ids = recentOrders.map(o => o.id).join(',');
+      const it = await pool.request().query(`
+        SELECT oi.order_id, m.name
+        FROM order_items oi
+        JOIN menu_items m ON oi.item_id = m.item_id
+        WHERE oi.order_id IN (${ids})
+      `);
+      it.recordset.forEach(row => {
+        const order = recentOrders.find(o => o.id === row.order_id);
+        if (order) order.items.push(row.name);
+      });
+    }
+
+    // 3. Revenue and orders for each of the last 7 days
+    const wr = await pool.request().query(`
+      WITH d AS (
+        SELECT CAST(GETDATE() AS DATE) AS dt
+        UNION ALL
+        SELECT DATEADD(day, -1, dt) FROM d
+        WHERE dt > DATEADD(day, -6, CAST(GETDATE() AS DATE))
+      )
+      SELECT LEFT(DATENAME(weekday, d.dt), 3) AS day,
+             ISNULL(SUM(o.total_amount), 0) AS revenue,
+             COUNT(o.order_id) AS orders
+      FROM d
+      LEFT JOIN orders o ON CAST(o.order_date AS DATE) = d.dt
+      GROUP BY d.dt
+      ORDER BY d.dt
+    `);
+
+    // 4. Top 5 most ordered menu items
+    const pi = await pool.request().query(`
+      SELECT TOP 5
+        m.item_id AS id, m.name, ISNULL(c.name, '') AS category,
+        SUM(oi.quantity) AS totalOrders, m.price
+      FROM order_items oi
+      JOIN menu_items m ON oi.item_id = m.item_id
+      LEFT JOIN categories c ON m.category_id = c.category_id
+      GROUP BY m.item_id, m.name, c.name, m.price
+      ORDER BY SUM(oi.quantity) DESC
+    `);
+
+    res.json({
+      dashboardStats: dashboardStats,
+      recentOrders: recentOrders,
+      weeklyRevenue: wr.recordset,
+      popularItems: pi.recordset
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.listen(5000, () => console.log('Server running on http://localhost:5000'));
+
+
 
